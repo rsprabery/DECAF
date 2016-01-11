@@ -190,15 +190,25 @@ static void insn_end_callback(DECAF_Callback_Params* params) {
         DECAF_printf("env is NULL!\n");
         return;
     }
+    
+    if (foundSysExecInterrupt || addressOfGeneralInterruptHandler != 0) {
+        if (!DECAF_is_in_kernel(env)) {
+            return;
+        }
+    } else {
+        if (DECAF_is_in_kernel(env)) {
+            return;
+        }
+    }
 
     DECAF_read_mem(env, env->eip, MAX_INSN_BYTES, insn);
 
-    xed_decoded_inst_zero(&insn_decoded);
-    xed_decoded_inst_set_mode(&insn_decoded, XED_MACHINE_MODE_LEGACY_32,
-            XED_ADDRESS_WIDTH_32b);
-    xed_decode(&insn_decoded, (const xed_uint8_t *) insn, MAX_INSN_BYTES);
-    insn_len = xed_decoded_inst_get_length(&insn_decoded);
-    insn_len = insn_len > MAX_INSN_BYTES ? MAX_INSN_BYTES : insn_len;
+//    xed_decoded_inst_zero(&insn_decoded);
+//    xed_decoded_inst_set_mode(&insn_decoded, XED_MACHINE_MODE_LEGACY_32,
+//            XED_ADDRESS_WIDTH_32b);
+//    xed_decode(&insn_decoded, (const xed_uint8_t *) insn, MAX_INSN_BYTES);
+//    insn_len = xed_decoded_inst_get_length(&insn_decoded);
+//    insn_len = insn_len > MAX_INSN_BYTES ? MAX_INSN_BYTES : insn_len;
     
     if ((insn[0] == 0xcd && insn[1] == 0x80) && env->regs[R_EAX] == 11 && foundSysExecInterrupt == 0 && addressOfGeneralInterruptHandler == 0) { 
         foundSysExecInterrupt = 1;
@@ -220,7 +230,7 @@ static void insn_end_callback(DECAF_Callback_Params* params) {
         addressOfGeneralInterruptHandler = env->eip;
         fprintf(tracefile, "General Interrupt Handler at 0x%x\n", addressOfGeneralInterruptHandler);
     } else if (addressOfGeneralInterruptHandler != 0) {
-        if (env->eip > addressOfGeneralInterruptHandler && env->eip < addressOfGeneralInterruptHandler + 100) {
+        if (env->eip > addressOfGeneralInterruptHandler && env->eip < addressOfGeneralInterruptHandler + 250) {
             //TODO: This part would likely be much better with XED
             
             if (insn[0] == 0x9a) { // absolute call
