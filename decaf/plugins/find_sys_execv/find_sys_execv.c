@@ -176,6 +176,42 @@ int addressOfGeneralInterruptHandler = 0;
 int callAfterInterruptFound = 0;
 int addressOfFunctionCalled = 0;
 int previousEip = 0;
+int sysExecId = 0;
+int foundSysExecId = 0;
+
+char* initString = "/sbin/init";
+
+static int checkRegisterForInitString(int registerValue, CPUState* env) {
+//    fprintf(tracefile, "In checkregsiter for init string function!\n");
+//    fflush(tracefile);
+    //char* initString = "/bin/ls";
+     //char* initString = "/sbin/init";
+//    fprintf(tracefile, "Declared static string\n");
+//    fflush(tracefile);
+    int lengthOfString = strlen(initString) + 1;
+    char testString[lengthOfString];
+    DECAF_read_mem(env, env->regs[registerValue], lengthOfString, testString);
+//    fprintf(tracefile, "DECAF READ MEM was successful!\n");
+//    fflush(tracefile);
+    if (testString[lengthOfString] != '\0') {
+//        fprintf(tracefile, "String did not end in null terminator!\n");
+//        fflush(tracefile);
+        return 0;
+    } else {
+//        fprintf(tracefile, "running strcmp!\n");
+//        fprintf(tracefile, "string length: %d\n", strlen(initString));
+//        fprintf(tracefile, "String being compared to is: %s\n", testString);
+//        fprintf(tracefile, testString);
+//        fflush(tracefile);
+        if (strcmp(initString, testString) != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+char* registerNames[] = {"R_EAX", "R_ECX", "R_EDX", "R_EBX", "R_ESP", "R_EBP", "R_ESI", "R_EDI"};
+int registers[] = {R_EAX, R_ECX, R_EDX, R_EBX, R_ESP, R_EBP, R_ESI, R_EDI};
 
 static void insn_end_callback(DECAF_Callback_Params* params) {
     unsigned char insn[MAX_INSN_BYTES];
@@ -190,88 +226,114 @@ static void insn_end_callback(DECAF_Callback_Params* params) {
         DECAF_printf("env is NULL!\n");
         return;
     }
-    
-    if (foundSysExecInterrupt || addressOfGeneralInterruptHandler != 0) {
-        if (!DECAF_is_in_kernel(env)) {
-            return;
+
+    //if (foundSysExecId) {
+        if (foundSysExecInterrupt || addressOfGeneralInterruptHandler != 0) {
+            if (!DECAF_is_in_kernel(env)) {
+                return;
+            }
+        } else {
+            if (DECAF_is_in_kernel(env)) {
+                return;
+            }
         }
-    } else {
-        if (DECAF_is_in_kernel(env)) {
-            return;
-        }
-    }
+    //}
 
     DECAF_read_mem(env, env->eip, MAX_INSN_BYTES, insn);
 
-//    xed_decoded_inst_zero(&insn_decoded);
-//    xed_decoded_inst_set_mode(&insn_decoded, XED_MACHINE_MODE_LEGACY_32,
-//            XED_ADDRESS_WIDTH_32b);
-//    xed_decode(&insn_decoded, (const xed_uint8_t *) insn, MAX_INSN_BYTES);
-//    insn_len = xed_decoded_inst_get_length(&insn_decoded);
-//    insn_len = insn_len > MAX_INSN_BYTES ? MAX_INSN_BYTES : insn_len;
-    
-    if ((insn[0] == 0xcd && insn[1] == 0x80) && env->regs[R_EAX] == 11 && foundSysExecInterrupt == 0 && addressOfGeneralInterruptHandler == 0) { 
-        foundSysExecInterrupt = 1;
-        fprintf(tracefile, "Found Linux System Exec Interrupt Call!\n");
-//        if (foundAnInterrupt) {
-//            fprintf(tracefile, "An interrupt was called again before a cr3 write was called!\n");
-//            fprintf(tracefile, "Instruction count in kernel since previous interrupt: %u\n", count);
-//            fprintf(tracefile, "Resetting count now!\n");
-//            count = 0;
-//        }
-//        
-//        fprintf(tracefile, "FOUND INT Call at: %x\n", env->eip);
-//        int eax_sys_call_num = env->regs[R_EAX];
-//        fprintf(tracefile, "EAX register (sys call #): %u\n", eax_sys_call_num);
-//        
-//        foundAnInterrupt = 1;
-    } else if (foundSysExecInterrupt) {
-        foundSysExecInterrupt = 0;
-        addressOfGeneralInterruptHandler = env->eip;
-        fprintf(tracefile, "General Interrupt Handler at 0x%x\n", addressOfGeneralInterruptHandler);
-    } else if (addressOfGeneralInterruptHandler != 0) {
-        if (env->eip > addressOfGeneralInterruptHandler && env->eip < addressOfGeneralInterruptHandler + 250) {
-            //TODO: This part would likely be much better with XED
-            
-            if (insn[0] == 0x9a) { // absolute call
-                fprintf(tracefile, "Absolute call!\n");
-                callAfterInterruptFound = 0;
-                previousEip = env->eip;
-                addressOfFunctionCalled = insn[1]; // offset is the only arg to call 
-                addressOfGeneralInterruptHandler = 0;
-            } else if (insn[0] == 0xe8) { //relative call
-                fprintf(tracefile, "relative call!\n");
-                addressOfGeneralInterruptHandler = 0;
-            } else if (insn[0] == 0xff) {
-                fprintf(tracefile, "some other call!\n");
-                addressOfGeneralInterruptHandler = 0;
+    //    xed_decoded_inst_zero(&insn_decoded);
+    //    xed_decoded_inst_set_mode(&insn_decoded, XED_MACHINE_MODE_LEGACY_32,
+    //            XED_ADDRESS_WIDTH_32b);
+    //    xed_decode(&insn_decoded, (const xed_uint8_t *) insn, MAX_INSN_BYTES);
+    //    insn_len = xed_decoded_inst_get_length(&insn_decoded);
+    //    insn_len = insn_len > MAX_INSN_BYTES ? MAX_INSN_BYTES : insn_len;
+    if (!foundSysExecId) {
+        if (insn[0] == 0xcd && insn[1] == 0x80) {
+//            fprintf(tracefile, "Found Linux Interrupt Call!\n");
+//            fflush(tracefile);
+            int eax = env->regs[R_EAX];
+//            fprintf(tracefile, "EAX register (sys call #): %u\n", eax);
+//            fflush(tracefile);
+            int i = 0;
+            for (i = 0; i < 8; i++) {
+                int reg = registers[i];
+//                fprintf(tracefile, "Register value being checked: %d\n", reg);
+//                fflush(tracefile);
+                if (checkRegisterForInitString(reg, env)) {
+                    fprintf(tracefile, "FOUND %s! using register: %s\n", initString, registerNames[i]);
+                    fprintf(tracefile, "Sys call # is: %u\n", eax);
+                    sysExecId = eax;
+                    foundSysExecId = 1;
+                }
+            }
+            fflush(tracefile);
+        } else {
+            return;
+        }
+    } else {
+        if ((insn[0] == 0xcd && insn[1] == 0x80) && env->regs[R_EAX] == sysExecId && foundSysExecInterrupt == 0 && addressOfGeneralInterruptHandler == 0) {
+            foundSysExecInterrupt = 1;
+            fprintf(tracefile, "Found Linux System Exec Interrupt Call!\n");
+            //        if (foundAnInterrupt) {
+            //            fprintf(tracefile, "An interrupt was called again before a cr3 write was called!\n");
+            //            fprintf(tracefile, "Instruction count in kernel since previous interrupt: %u\n", count);
+            //            fprintf(tracefile, "Resetting count now!\n");
+            //            count = 0;
+            //        }
+            //        
+            //        fprintf(tracefile, "FOUND INT Call at: %x\n", env->eip);
+            //        int eax_sys_call_num = env->regs[R_EAX];
+            //        fprintf(tracefile, "EAX register (sys call #): %u\n", eax_sys_call_num);
+            //        
+            //        foundAnInterrupt = 1;
+        } else if (foundSysExecInterrupt) {
+            foundSysExecInterrupt = 0;
+            addressOfGeneralInterruptHandler = env->eip;
+            fprintf(tracefile, "General Interrupt Handler at 0x%x\n", addressOfGeneralInterruptHandler);
+        } else if (addressOfGeneralInterruptHandler != 0) {
+            if (env->eip > addressOfGeneralInterruptHandler && env->eip < addressOfGeneralInterruptHandler + 250) {
+                //TODO: This part would likely be much better with XED
+
+                if (insn[0] == 0x9a) { // absolute call
+                    fprintf(tracefile, "Absolute call!\n");
+                    callAfterInterruptFound = 0;
+                    previousEip = env->eip;
+                    addressOfFunctionCalled = insn[1]; // offset is the only arg to call 
+                    addressOfGeneralInterruptHandler = 0;
+                } else if (insn[0] == 0xe8) { //relative call
+                    fprintf(tracefile, "relative call!\n");
+                    addressOfGeneralInterruptHandler = 0;
+                } else if (insn[0] == 0xff) {
+                    fprintf(tracefile, "some other call!\n");
+                    addressOfGeneralInterruptHandler = 0;
+                }
             }
         }
     }
 
-//    if (foundAnInterrupt) {
-//        if (DECAF_is_in_kernel(env)) {
-//            count++;
-//            /*check for write to cr3
-//            for movcr, mod=11 (register direct)
-//            so move to cr3 would always have 1101 1XXX & d8 == 1*/
-//            if (insn[0] == 0x0f && insn[1] == 0x22 && ((insn[2] & 0xf8) == 0xd8)) {
-//                fprintf(tracefile, "CR3 Write at: %x\n", env->eip);
-//                fprintf(tracefile, "Instruction count in kernel between interrupt and CR3 write: %u\n", count);
-//                fprintf(tracefile, "Resetting count and found interrupt flag!\n");
-//                count = 0;
-//                foundAnInterrupt = 0;
-//                return;
-//            }
-//        }
-//    }
-    
+    //    if (foundAnInterrupt) {
+    //        if (DECAF_is_in_kernel(env)) {
+    //            count++;
+    //            /*check for write to cr3
+    //            for movcr, mod=11 (register direct)
+    //            so move to cr3 would always have 1101 1XXX & d8 == 1*/
+    //            if (insn[0] == 0x0f && insn[1] == 0x22 && ((insn[2] & 0xf8) == 0xd8)) {
+    //                fprintf(tracefile, "CR3 Write at: %x\n", env->eip);
+    //                fprintf(tracefile, "Instruction count in kernel between interrupt and CR3 write: %u\n", count);
+    //                fprintf(tracefile, "Resetting count and found interrupt flag!\n");
+    //                count = 0;
+    //                foundAnInterrupt = 0;
+    //                return;
+    //            }
+    //        }
+    //    }
+
     //fflush(tracefile);
     if (instructionsBetweenFlush >= 500000) {
         fflush(tracefile);
         instructionsBetweenFlush = 0;
     }
-    
+
     instructionsBetweenFlush++;
 }
 
@@ -309,6 +371,7 @@ static void start_tracing(void) {
     callAfterInterruptFound = 0;
     addressOfFunctionCalled = 0;
     foundAnInterrupt = 0;
+    foundSysExecId = 0;
     largest_deltat.tv_sec = 0;
     largest_deltat.tv_usec = 0;
     /* start instruction tracing and initiliaze variables */
